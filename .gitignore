@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environments
+venv/
+modelsvenv/
+
+# Environment files
+.env
+
+# ML models
+*.pth
+*.pt
+*.h5
+*.keras
+*.joblib
+*.pkl
+
+# VS Code
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
