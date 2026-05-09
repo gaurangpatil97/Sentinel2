@@ -29,3 +29,8 @@ violations/
 *.zip
 *.csv
 *.mp4
+
+
+# Helmet Detection
+models/HelmetDetection/dataset/
+models/HelmetDetection/helmetvenv/
