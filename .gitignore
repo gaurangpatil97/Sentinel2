@@ -23,3 +23,9 @@ modelsvenv/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Sentinel outputs
+violations/
+*.zip
+*.csv
+*.mp4
