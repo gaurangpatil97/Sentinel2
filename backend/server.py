@@ -1,32 +1,42 @@
 from __future__ import annotations
 
 import base64
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
 import cv2
 import numpy as np
-from flask import Flask, jsonify, request
-from flask_cors import CORS
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from ultralytics import YOLO
 
 MODEL_PATH = Path(r"C:\Users\gaura\Desktop\Sentinel\models\HelmetDetection\best.pt")
-TOP_BAR_HEIGHT = 72
+SUMMARY_BAR_HEIGHT = 74
 
-app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
+model: YOLO | None = None
 
 
-def load_model() -> YOLO:
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    global model
+
     if not MODEL_PATH.exists():
-        raise FileNotFoundError(f"YOLO model not found at {MODEL_PATH}")
-    return YOLO(str(MODEL_PATH))
+        raise RuntimeError(f"YOLO model not found at {MODEL_PATH}")
+
+    model = YOLO(str(MODEL_PATH))
+    yield
 
 
-try:
-    model: YOLO | None = load_model()
-except Exception:
-    model = None
+app = FastAPI(lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 def normalize_class_name(name: str) -> str:
@@ -58,12 +68,11 @@ def draw_labeled_box(
     thickness = 2
     (text_width, text_height), baseline = cv2.getTextSize(label, font, font_scale, thickness)
     label_top = max(0, y1 - text_height - baseline - 8)
-    label_bottom = max(0, y1)
-    cv2.rectangle(image, (x1, label_top), (x1 + text_width + 8, label_bottom), color, -1)
+    cv2.rectangle(image, (x1, label_top), (x1 + text_width + 8, y1), color, -1)
     cv2.putText(
         image,
         label,
-        (x1 + 4, label_bottom - 5),
+        (x1 + 4, y1 - 5),
         font,
         font_scale,
         (255, 255, 255),
@@ -72,27 +81,26 @@ def draw_labeled_box(
     )
 
 
-def encode_image_to_base64(image: np.ndarray) -> str:
-    success, buffer = cv2.imencode(".png", image)
-    if not success:
-        raise ValueError("Failed to encode annotated image.")
-    return base64.b64encode(buffer.tobytes()).decode("utf-8")
-
-
-def make_summary_canvas(image: np.ndarray, helmet_count: int, no_helmet_count: int, bicyclist_count: int, violation: bool) -> np.ndarray:
+def make_summary_canvas(
+    image: np.ndarray,
+    helmet_count: int,
+    no_helmet_count: int,
+    bicyclist_count: int,
+    violation: bool,
+) -> np.ndarray:
     height, width = image.shape[:2]
-    canvas = np.zeros((height + TOP_BAR_HEIGHT, width, 3), dtype=np.uint8)
+    canvas = np.zeros((height + SUMMARY_BAR_HEIGHT, width, 3), dtype=np.uint8)
     canvas[:] = (8, 12, 20)
-    canvas[TOP_BAR_HEIGHT:, :width] = image
+    canvas[SUMMARY_BAR_HEIGHT:, :width] = image
 
-    cv2.rectangle(canvas, (0, 0), (width, TOP_BAR_HEIGHT), (10, 10, 10), -1)
-    cv2.line(canvas, (0, TOP_BAR_HEIGHT - 1), (width, TOP_BAR_HEIGHT - 1), (45, 55, 72), 1)
+    cv2.rectangle(canvas, (0, 0), (width, SUMMARY_BAR_HEIGHT), (10, 10, 10), -1)
+    cv2.line(canvas, (0, SUMMARY_BAR_HEIGHT - 1), (width, SUMMARY_BAR_HEIGHT - 1), (45, 55, 72), 1)
 
     summary = f"Helmet: {helmet_count}   No Helmet: {no_helmet_count}   Bicyclists: {bicyclist_count}"
     cv2.putText(
         canvas,
         summary,
-        (16, 29),
+        (16, 30),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.7,
         (245, 245, 245),
@@ -105,7 +113,7 @@ def make_summary_canvas(image: np.ndarray, helmet_count: int, no_helmet_count: i
         cv2.putText(
             canvas,
             violation_text,
-            (16, 57),
+            (16, 60),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.7,
             (0, 0, 255),
@@ -116,25 +124,32 @@ def make_summary_canvas(image: np.ndarray, helmet_count: int, no_helmet_count: i
     return canvas
 
 
-@app.route("/detect", methods=["POST"])
-def detect() -> tuple[Any, int]:
+def encode_image_to_base64(image: np.ndarray) -> str:
+    success, buffer = cv2.imencode(".png", image)
+    if not success:
+        raise ValueError("Failed to encode annotated image.")
+    return base64.b64encode(buffer.tobytes()).decode("utf-8")
+
+
+@app.post("/detect")
+async def detect(image: UploadFile = File(...)) -> JSONResponse:
     if model is None:
-        return jsonify({"error": "Model failed to load at startup."}), 503
+        raise HTTPException(status_code=503, detail="Model failed to load at startup.")
 
-    if "image" not in request.files:
-        return jsonify({"error": "Missing required multipart field 'image'."}), 400
-
-    image_file = request.files["image"]
-    if not image_file or image_file.filename == "":
-        return jsonify({"error": "No image file was provided."}), 400
+    if not image.content_type or not image.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Uploaded file must be an image.")
 
     try:
-        file_bytes = np.frombuffer(image_file.read(), dtype=np.uint8)
-        image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-        if image is None:
-            return jsonify({"error": "Unable to decode the uploaded image."}), 400
+        raw_bytes = await image.read()
+        if not raw_bytes:
+            raise HTTPException(status_code=400, detail="No image data was provided.")
 
-        results = model(image, conf=0.25, verbose=False)
+        np_bytes = np.frombuffer(raw_bytes, dtype=np.uint8)
+        decoded_image = cv2.imdecode(np_bytes, cv2.IMREAD_COLOR)
+        if decoded_image is None:
+            raise HTTPException(status_code=400, detail="Unable to decode the uploaded image.")
+
+        results = model(decoded_image, conf=0.25, verbose=False)
         result = results[0]
 
         detections: list[tuple[str, float, int, int, int, int]] = []
@@ -148,13 +163,13 @@ def detect() -> tuple[Any, int]:
         helmet_boxes = [(x1, y1, x2, y2) for class_name, _, x1, y1, x2, y2 in detections if class_name == "helmet"]
         no_helmet_boxes = [(x1, y1, x2, y2) for class_name, _, x1, y1, x2, y2 in detections if class_name == "no-helmet"]
 
-        annotated = image.copy()
+        annotated = decoded_image.copy()
         helmet_count = 0
         no_helmet_count = 0
         bicyclist_count = 0
         driver_count = 0
-        bicycle_id = 1
         driver_id = 1
+        bicycle_id = 1
 
         for class_name, _, x1, y1, x2, y2 in detections:
             if class_name in {"helmet", "no-helmet"}:
@@ -193,32 +208,34 @@ def detect() -> tuple[Any, int]:
         output_image = make_summary_canvas(annotated, helmet_count, no_helmet_count, bicyclist_count, violation)
         output_b64 = encode_image_to_base64(output_image)
 
-        return (
-            jsonify(
-                {
-                    "output_image": output_b64,
-                    "helmet_count": helmet_count,
-                    "no_helmet_count": no_helmet_count,
-                    "bicyclist_count": bicyclist_count,
-                    "violation": violation,
-                    "driver_count": driver_count,
-                }
-            ),
-            200,
+        return JSONResponse(
+            status_code=200,
+            content={
+                "output_image": output_b64,
+                "helmet_count": helmet_count,
+                "no_helmet_count": no_helmet_count,
+                "bicyclist_count": bicyclist_count,
+                "violation": violation,
+                "driver_count": driver_count,
+            },
         )
+    except HTTPException:
+        raise
     except Exception as exc:
-        return jsonify({"error": f"Detection failed: {exc}"}), 500
+        raise HTTPException(status_code=500, detail=f"Detection failed: {exc}") from exc
 
 
-@app.errorhandler(404)
-def handle_not_found(_: Exception) -> tuple[Any, int]:
-    return jsonify({"error": "Not found"}), 404
+@app.exception_handler(HTTPException)
+async def http_exception_handler(_: Any, exc: HTTPException) -> JSONResponse:
+    return JSONResponse(status_code=exc.status_code, content={"error": exc.detail})
 
 
-@app.errorhandler(405)
-def handle_method_not_allowed(_: Exception) -> tuple[Any, int]:
-    return jsonify({"error": "Method not allowed"}), 405
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(_: Any, exc: Exception) -> JSONResponse:
+    return JSONResponse(status_code=500, content={"error": f"Internal server error: {exc}"})
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=5000)
