@@ -16,7 +16,7 @@ try:
     rf = Roboflow(api_key=os.getenv("ROBOFLOW_API_KEY"))
     workspace = rf.workspace("gaurang-patil-gr0h9")
     project = workspace.project("helmet-detection-ntbfz-yozkl")
-    version = project.version(1)
+    version = project.version(2)
     
     dataset = version.download(
         "yolov8", 

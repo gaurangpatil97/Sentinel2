@@ -34,3 +34,10 @@ violations/
 # Helmet Detection
 models/HelmetDetection/dataset/
 models/HelmetDetection/helmetvenv/
+
+
+# Helmet Detection outputs
+models/HelmetDetection/output*.jpg
+models/HelmetDetection/image.png
+models/HelmetDetection/runs/
+models/HelmetDetection/best.pt
