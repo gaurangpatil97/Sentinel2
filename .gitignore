@@ -41,3 +41,13 @@ models/HelmetDetection/output*.jpg
 models/HelmetDetection/image.png
 models/HelmetDetection/runs/
 models/HelmetDetection/best.pt
+
+
+backend/backendvenv/
+backend/__pycache__/
+frontend/node_modules/
+frontend/.next/
+
+
+frontend/AGENTS.md
+frontend/CLAUDE.md
