@@ -8,7 +8,7 @@ from collections import defaultdict
 
 def run_master_helmet_system(video_source):
     # 1. SETUP & PATHS
-    model_path = r'C:\Users\gaura\Desktop\Sentinel\models\HelmetDetection\best.pt'
+    model_path = r"C:\Users\gaura\Downloads\Sentinel_Final_Package\weights\best3.pt"
     
     if not os.path.exists(model_path):
         print(f"❌ CRITICAL ERROR: Weights not found at {model_path}")

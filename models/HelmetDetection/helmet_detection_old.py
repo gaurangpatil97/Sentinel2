@@ -45,7 +45,7 @@ import time
 
 # ── PATHS ─────────────────────────────────────────────────────────────────────
 MODEL_PATH    = r"C:\Users\gaura\Desktop\Sentinel\models\HelmetDetection\best_old.pt"
-INPUT_VIDEO   = r"C:\Users\gaura\Desktop\Sentinel\models\HelmetDetection\video_3.mp4"
+INPUT_VIDEO   = r"C:\Users\gaura\Desktop\Sentinel\models\HelmetDetection\14934614_2160_3840_30fps.mp4"
 OUTPUT_VIDEO  = r"C:\Users\gaura\Desktop\Sentinel\models\HelmetDetection\output_v6.mp4"
 VIOLATION_DIR = "violations_v6"
 
